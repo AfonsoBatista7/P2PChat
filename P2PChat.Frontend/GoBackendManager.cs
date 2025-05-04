@@ -69,25 +69,23 @@ namespace P2PChat.Frontend
                                                     Console.Write("\r"); // Move to start of line
                                                     Console.Write(new string(' ', Console.WindowWidth)); // Clear the line
                                                     Console.Write("\r"); // Move back to start
-                                                    switch (logMessage.Level)
-                                                    {
-                                                        case "MSG":
-                                                            // For chat messages, clear the current line and redraw
+                                                    switch (logMessage.GetLogLevel()) {
+                                                        case LogLevel.Message:
                                                             Console.WriteLine(logMessage.Message);
                                                             break;
-                                                        case "ERROR":
+                                                        case LogLevel.Error:
                                                             Console.ForegroundColor = ConsoleColor.Red;
                                                             Console.WriteLine($"[Go Backend] {logMessage.Message}");
                                                             Console.ResetColor();
                                                             break;
-                                                        case "INFO":
+                                                        case LogLevel.Info:
                                                             Console.ForegroundColor = ConsoleColor.Gray;
                                                             Console.WriteLine($"[Go Backend] {logMessage.Message}");
                                                             Console.ResetColor();
                                                             break;
-                                                        default:
+                                                        case LogLevel.Debug:
                                                             Console.ForegroundColor = ConsoleColor.Yellow;
-                                                            Console.WriteLine($"[Go Backend] Unknown log level '{logMessage.Level}': {logMessage.Message}");
+                                                            Console.WriteLine($"[Go Backend] {logMessage.Message}");
                                                             Console.ResetColor();
                                                             break;
                                                     }

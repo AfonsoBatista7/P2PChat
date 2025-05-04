@@ -9,5 +9,17 @@ namespace P2PChat.Frontend
         
         [JsonPropertyName("message")]
         public string Message { get; set; } = "";
+
+        public LogLevel GetLogLevel()
+        {
+            return Level.ToUpper() switch
+            {
+                "MSG" => LogLevel.Message,
+                "INFO" => LogLevel.Info,
+                "ERROR" => LogLevel.Error,
+                "DEBUG" => LogLevel.Debug,
+                _ => LogLevel.Debug
+            };
+        }
     }
 } 
