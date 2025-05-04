@@ -26,7 +26,7 @@ namespace P2PChat.Frontend
             });
 
             if (!response.IsSuccessStatusCode) 
-                Console.WriteLine($"Failed to start P2P network: {await response.Content.ReadAsStringAsync()}");
+                Console.WriteLine($"{MessagePrefix.Error} Failed to start P2P network: {await response.Content.ReadAsStringAsync()}");
         }
 
         public async Task ConnectToPeer(string peerId)
@@ -36,7 +36,7 @@ namespace P2PChat.Frontend
             });
 
             if (!response.IsSuccessStatusCode) 
-                Console.WriteLine($"Failed to connect to peer: {await response.Content.ReadAsStringAsync()}");
+                Console.WriteLine($"{MessagePrefix.Error} Failed to connect to peer: {await response.Content.ReadAsStringAsync()}");
         }
 
         public async Task SendMessage(string message)
@@ -47,28 +47,28 @@ namespace P2PChat.Frontend
             });
 
             if (!response.IsSuccessStatusCode) {
-                Console.WriteLine($"Failed to send message: {await response.Content.ReadAsStringAsync()}");
+                Console.WriteLine($"{MessagePrefix.Error} Failed to send message: {await response.Content.ReadAsStringAsync()}");
             }
         }
 
         public async Task CloseConnection()
         {
-            Console.WriteLine("Closing connection...");
+            Console.WriteLine($"{MessagePrefix.Status} Closing connection...");
             try {
                 var content = new StringContent("{}", Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync($"{_baseUrl}/api/close", content);
                 
                 if (response.IsSuccessStatusCode) {
                     var responseContent = await response.Content.ReadAsStringAsync();
-                    Console.WriteLine("Connection closed...");
+                    Console.WriteLine($"{MessagePrefix.Status} Connection closed...");
                     Environment.Exit(0);
                 } else {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    Console.WriteLine($"Failed to close connection. Status: {response.StatusCode}, Content: {errorContent}");
+                    Console.WriteLine($"{MessagePrefix.Error} Failed to close connection. Status: {response.StatusCode}, Content: {errorContent}");
                 }
             } catch (Exception ex) {
-                Console.WriteLine($"Exception while closing connection: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                Console.WriteLine($"{MessagePrefix.Error} Exception while closing connection: {ex.Message}");
+                Console.WriteLine($"{MessagePrefix.Debug} Stack trace: {ex.StackTrace}");
                 // Still exit even if there's an exception
                 Environment.Exit(0);
             }
@@ -80,11 +80,11 @@ namespace P2PChat.Frontend
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"Status: {content}");
+                Console.WriteLine($"{MessagePrefix.Status} {content}");
             }
             else
             {
-                Console.WriteLine($"Failed to get status: {await response.Content.ReadAsStringAsync()}");
+                Console.WriteLine($"{MessagePrefix.Error} Failed to get status: {await response.Content.ReadAsStringAsync()}");
             }
         }
     }

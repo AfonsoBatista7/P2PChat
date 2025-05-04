@@ -49,7 +49,7 @@ namespace P2PChat.Frontend
                                         lock (_consoleLock)
                                         {
                                             Console.ForegroundColor = ConsoleColor.Yellow;
-                                            Console.WriteLine("[Debug] Log stream ended");
+                                            Console.WriteLine($"{MessagePrefix.Debug} Log stream ended");
                                             Console.ResetColor();
                                         }
                                         break;
@@ -75,17 +75,17 @@ namespace P2PChat.Frontend
                                                             break;
                                                         case LogLevel.Error:
                                                             Console.ForegroundColor = ConsoleColor.Red;
-                                                            Console.WriteLine($"[Go Backend] {logMessage.Message}");
+                                                            Console.WriteLine($"{MessagePrefix.GoBackend} {logMessage.Message}");
                                                             Console.ResetColor();
                                                             break;
                                                         case LogLevel.Info:
                                                             Console.ForegroundColor = ConsoleColor.Gray;
-                                                            Console.WriteLine($"[Go Backend] {logMessage.Message}");
+                                                            Console.WriteLine($"{MessagePrefix.GoBackend} {logMessage.Message}");
                                                             Console.ResetColor();
                                                             break;
                                                         case LogLevel.Debug:
                                                             Console.ForegroundColor = ConsoleColor.Yellow;
-                                                            Console.WriteLine($"[Go Backend] {logMessage.Message}");
+                                                            Console.WriteLine($"{MessagePrefix.GoBackend} {logMessage.Message}");
                                                             Console.ResetColor();
                                                             break;
                                                     }
@@ -99,8 +99,8 @@ namespace P2PChat.Frontend
                                             lock (_consoleLock)
                                             {
                                                 Console.ForegroundColor = ConsoleColor.Yellow;
-                                                Console.WriteLine($"[Debug] Failed to parse log message: {json}");
-                                                Console.WriteLine($"[Debug] Error: {ex.Message}");
+                                                Console.WriteLine($"{MessagePrefix.Debug} Failed to parse log message: {json}");
+                                                Console.WriteLine($"{MessagePrefix.Debug} Error: {ex.Message}");
                                                 Console.ResetColor();
                                             }
                                         }
@@ -117,7 +117,7 @@ namespace P2PChat.Frontend
                         lock (_consoleLock)
                         {
                             Console.ForegroundColor = ConsoleColor.Yellow;
-                            Console.WriteLine($"[Log Error] {ex.Message}. Retrying in 1 second...");
+                            Console.WriteLine($"{MessagePrefix.LogError} {ex.Message}. Retrying in 1 second...");
                             Console.ResetColor();
                         }
                         await Task.Delay(1000, token);
