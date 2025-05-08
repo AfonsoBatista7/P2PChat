@@ -1,7 +1,5 @@
-namespace P2PChat.Frontend
-{
-    public enum LogLevel
-    {
+namespace P2PChat.Frontend {
+    public enum LogLevel {
         /// <summary>
         /// Regular chat messages from peers
         /// </summary>

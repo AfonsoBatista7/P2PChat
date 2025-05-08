@@ -1,7 +1,5 @@
-namespace P2PChat.Frontend
-{
-    public static class MessagePrefix
-    {
+namespace P2PChat.Frontend {
+    public static class MessagePrefix {
         /// <summary>
         /// Prefix for messages from the Go backend
         /// </summary>

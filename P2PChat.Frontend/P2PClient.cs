@@ -10,16 +10,13 @@ namespace P2PChat.Frontend
         private readonly string _baseUrl;
         private static object _consoleLock = new object();
 
-        public P2PClient(int port)
-        {
+        public P2PClient(int port) {
             _baseUrl = $"http://localhost:{port}";
             _httpClient = new HttpClient();
         }
 
-        public async Task StartP2P(string peerId, string bootstrap, bool debug)
-        {
-            var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/api/start", new
-            {
+        public async Task StartP2P(string peerId, string bootstrap, bool debug) {
+            var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/api/start", new {
                 peerId,
                 bootstrap,
                 debug
@@ -29,8 +26,7 @@ namespace P2PChat.Frontend
                 Console.WriteLine($"{MessagePrefix.Error} Failed to start P2P network: {await response.Content.ReadAsStringAsync()}");
         }
 
-        public async Task ConnectToPeer(string peerId)
-        {
+        public async Task ConnectToPeer(string peerId) {
             var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/api/connect", new {
                 peerId
             });
@@ -39,21 +35,20 @@ namespace P2PChat.Frontend
                 Console.WriteLine($"{MessagePrefix.Error} Failed to connect to peer: {await response.Content.ReadAsStringAsync()}");
         }
 
-        public async Task SendMessage(string message)
-        {
-            var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/api/send", new
-            {
+        public async Task SendMessage(string message) {
+            var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/api/send", new {
                 message
             });
 
-            if (!response.IsSuccessStatusCode) {
+            if (!response.IsSuccessStatusCode) 
                 Console.WriteLine($"{MessagePrefix.Error} Failed to send message: {await response.Content.ReadAsStringAsync()}");
-            }
+            
         }
 
-        public async Task CloseConnection()
-        {
+        public async Task CloseConnection() {
+
             Console.WriteLine($"{MessagePrefix.Status} Closing connection...");
+
             try {
                 var content = new StringContent("{}", Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync($"{_baseUrl}/api/close", content);
@@ -74,16 +69,12 @@ namespace P2PChat.Frontend
             }
         }
 
-        public async Task GetStatus()
-        {
+        public async Task GetStatus() {
             var response = await _httpClient.GetAsync($"{_baseUrl}/api/status");
-            if (response.IsSuccessStatusCode)
-            {
+            if (response.IsSuccessStatusCode) {
                 var content = await response.Content.ReadAsStringAsync();
                 Console.WriteLine($"{MessagePrefix.Status} {content}");
-            }
-            else
-            {
+            } else {
                 Console.WriteLine($"{MessagePrefix.Error} Failed to get status: {await response.Content.ReadAsStringAsync()}");
             }
         }

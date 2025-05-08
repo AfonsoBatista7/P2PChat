@@ -19,16 +19,13 @@ namespace P2PChat.Frontend {
             string goExecutablePath = Path.Combine(Directory.GetCurrentDirectory(), "go-code", "chatp2p");
 
             // Parse command line arguments
-            for (int i = 0; i < args.Length; i++)
-            {
-                switch (args[i].ToLower())
-                {
+            for (int i = 0; i < args.Length; i++) {
+                switch (args[i].ToLower()) {
                     case "-debug":
                         debug = true;
                         break;
                     case "-bootstrap":
-                        if (i + 1 < args.Length)
-                        {
+                        if (i + 1 < args.Length) {
                             bootstrap = args[i + 1];
                             i++;
                         }
@@ -87,52 +84,36 @@ namespace P2PChat.Frontend {
                     input = "";
                     ConsoleState.CurrentInput = "";
 
-                    while (true)
-                    {
+                    while (true) {
                         if (Console.KeyAvailable) {
                             var key = Console.ReadKey(intercept: true);
-                            if (key.Key == ConsoleKey.Enter)
-                            {
+                            if (key.Key == ConsoleKey.Enter) {
                                 Console.WriteLine();
                                 break;
-                            }
-                            else if (key.Key == ConsoleKey.Backspace && input.Length > 0)
-                            {
+                            } else if (key.Key == ConsoleKey.Backspace && input.Length > 0) {
                                 input = input.Substring(0, input.Length - 1);
                                 ConsoleState.CurrentInput = input;
                                 Console.Write("\b \b");
-                            }
-                            else if (!char.IsControl(key.KeyChar))
-                            {
+                            } else if (!char.IsControl(key.KeyChar)) {
                                 input += key.KeyChar;
                                 ConsoleState.CurrentInput = input;
                                 Console.Write(key.KeyChar);
                             }
-                        }
-                        else
-                        {
+                        } else {
                             await Task.Delay(50); // Avoid busy waiting
                         }
                     }
 
-                    if (!string.IsNullOrEmpty(input))
-                    {
-                        if (input.ToLower().StartsWith("/connect"))
-                        {
+                    if (!string.IsNullOrEmpty(input)) {
+                        if (input.ToLower().StartsWith("/connect")) {
                             string targetPeerId = input.Substring("/connect".Length).Trim();
                             await client.ConnectToPeer(targetPeerId);
-                        }
-                        else if (input.ToLower().StartsWith("/status"))
-                        {
+                        } else if (input.ToLower().StartsWith("/status")) {
                             await client.GetStatus();
-                        }
-                        else if (input.ToLower().StartsWith("/exit"))
-                        {
+                        } else if (input.ToLower().StartsWith("/exit")) {
                             await client.CloseConnection();
                             break;
-                        }
-                        else
-                        {
+                        } else {
                             await client.SendMessage(input);
                         }
                     }

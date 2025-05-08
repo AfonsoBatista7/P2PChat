@@ -3,10 +3,8 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Diagnostics;
 
-namespace P2PChat.Frontend
-{
-    public class GoBackendManager
-    {
+namespace P2PChat.Frontend {
+    public class GoBackendManager {
         private Process? _goProcess;
         private readonly string _goExecutablePath;
         private readonly int _port;
@@ -14,38 +12,32 @@ namespace P2PChat.Frontend
         private readonly HttpClient _httpClient;
         private CancellationTokenSource? _logCancellationSource;
 
-        public GoBackendManager(string goExecutablePath, int port)
-        {
+        public GoBackendManager(string goExecutablePath, int port) {
             _goExecutablePath = goExecutablePath;
             _port = port;
             _httpClient = new HttpClient();
         }
 
-        private async Task HandleLogsAsync()
-        {
+        private async Task HandleLogsAsync() {
             _logCancellationSource = new CancellationTokenSource();
             var token = _logCancellationSource.Token;
 
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    using (var request = new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{_port}/api/logs"))
-                    {
+            while (!token.IsCancellationRequested) {
+                try {
+                    using (var request =
+                     new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{_port}/api/logs")) {
                         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
-                        using (var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token))
-                        {
+                        using (var response = await _httpClient.SendAsync(request,
+                         HttpCompletionOption.ResponseHeadersRead,
+                         token)) {
                             response.EnsureSuccessStatusCode();
 
                             using (var stream = await response.Content.ReadAsStreamAsync())
-                            using (var reader = new StreamReader(stream))
-                            {
-                                while (!token.IsCancellationRequested)
-                                {
+                            using (var reader = new StreamReader(stream)) {
+                                while (!token.IsCancellationRequested) {
                                     var line = await reader.ReadLineAsync();
-                                    if (line == null)
-                                    {
+                                    if (line == null) {
                                         lock (_consoleLock)
                                         {
                                             Console.ForegroundColor = ConsoleColor.Yellow;
@@ -55,17 +47,13 @@ namespace P2PChat.Frontend
                                         break;
                                     }
 
-                                    if (line.StartsWith("data: "))
-                                    {
+                                    if (line.StartsWith("data: ")) {
                                         var json = line.Substring(6);
-                                        try
-                                        {
+                                        try {
                                             var logMessage = JsonSerializer.Deserialize<LogMessage>(json);
 
-                                            if (logMessage != null)
-                                            {
-                                                lock (_consoleLock)
-                                                {
+                                            if (logMessage != null) {
+                                                lock (_consoleLock) {
                                                     Console.Write("\r"); // Move to start of line
                                                     Console.Write(new string(' ', Console.WindowWidth)); // Clear the line
                                                     Console.Write("\r"); // Move back to start
@@ -93,11 +81,8 @@ namespace P2PChat.Frontend
                                                     Console.Write(ConsoleState.CurrentInput);
                                                 }
                                             }
-                                        }
-                                        catch (JsonException ex)
-                                        {
-                                            lock (_consoleLock)
-                                            {
+                                        } catch (JsonException ex) {
+                                            lock (_consoleLock) {
                                                 Console.ForegroundColor = ConsoleColor.Yellow;
                                                 Console.WriteLine($"{MessagePrefix.Debug} Failed to parse log message: {json}");
                                                 Console.WriteLine($"{MessagePrefix.Debug} Error: {ex.Message}");
@@ -109,13 +94,9 @@ namespace P2PChat.Frontend
                             }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    if (!token.IsCancellationRequested)
-                    {
-                        lock (_consoleLock)
-                        {
+                } catch (Exception ex) {
+                    if (!token.IsCancellationRequested) {
+                        lock (_consoleLock) {
                             Console.ForegroundColor = ConsoleColor.Yellow;
                             Console.WriteLine($"{MessagePrefix.LogError} {ex.Message}. Retrying in 1 second...");
                             Console.ResetColor();
@@ -126,13 +107,11 @@ namespace P2PChat.Frontend
             }
         }
 
-        private async Task<bool> WaitForBackendStartupAsync()
-        {
+        private async Task<bool> WaitForBackendStartupAsync() {
             int maxRetries = 10;
             int retryDelay = 1000; // 1 second
 
-            for (int i = 0; i < maxRetries; i++)
-            {
+            for (int i = 0; i < maxRetries; i++) {
                 // First check if the process is still running
                 if (_goProcess == null || _goProcess.HasExited) {
                     var error = _goProcess?.StandardError.ReadToEnd() ?? "Process exited unexpectedly";
@@ -140,14 +119,11 @@ namespace P2PChat.Frontend
                 }
 
                 try {
-                    using (var request = new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{_port}/api/status"))
-                    {
+                    using (var request = new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{_port}/api/status")) {
                         var response = await _httpClient.SendAsync(request);
-                        if (response.IsSuccessStatusCode)
-                        {
+                        if (response.IsSuccessStatusCode) {
                             var content = await response.Content.ReadAsStringAsync();
-                            lock (_consoleLock)
-                            {
+                            lock (_consoleLock) {
                                 Console.ForegroundColor = ConsoleColor.Green;
                                 Console.ResetColor();
                             }
