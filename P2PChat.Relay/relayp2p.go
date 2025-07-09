@@ -98,10 +98,10 @@ func main() {
 	select {}
 }
 
-func connectBootstrapPeer(ctx context.Context, relayData host.Host, kademliaDht *dht.IpfsDHT,wg *sync.WaitGroup) {
+func connectBootstrapPeer(ctx context.Context, relayData host.Host, kademliaDht *dht.IpfsDHT, wg *sync.WaitGroup) {
 	wg.Add(1)
 
-	go func () {
+	go func() {
 		defer wg.Done()
 
 		discovery := routing.NewRoutingDiscovery(kademliaDht)

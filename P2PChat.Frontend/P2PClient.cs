@@ -10,9 +10,9 @@ namespace P2PChat.Frontend
         private readonly string _baseUrl;
         private static object _consoleLock = new object();
 
-        public P2PClient(int port) {
-            _baseUrl = $"http://localhost:{port}";
-            _httpClient = new HttpClient();
+        public P2PClient(string baseUrl, HttpClient httpClient) {
+            _baseUrl = baseUrl;
+            _httpClient = httpClient;
         }
 
         public async Task StartP2P(string peerId, string bootstrap, bool debug) {
@@ -56,7 +56,6 @@ namespace P2PChat.Frontend
                 if (response.IsSuccessStatusCode) {
                     var responseContent = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"{MessagePrefix.Status} Connection closed...");
-                    Environment.Exit(0);
                 } else {
                     var errorContent = await response.Content.ReadAsStringAsync();
                     Console.WriteLine($"{MessagePrefix.Error} Failed to close connection. Status: {response.StatusCode}, Content: {errorContent}");
@@ -64,19 +63,21 @@ namespace P2PChat.Frontend
             } catch (Exception ex) {
                 Console.WriteLine($"{MessagePrefix.Error} Exception while closing connection: {ex.Message}");
                 Console.WriteLine($"{MessagePrefix.Debug} Stack trace: {ex.StackTrace}");
-                // Still exit even if there's an exception
-                Environment.Exit(0);
+                // Do not exit here
             }
         }
 
-        public async Task GetStatus() {
+        public async Task<bool> CheckStatus(bool printResult = false) {
             var response = await _httpClient.GetAsync($"{_baseUrl}/api/status");
-            if (response.IsSuccessStatusCode) {
-                var content = await response.Content.ReadAsStringAsync();
-                Console.WriteLine($"{MessagePrefix.Status} {content}");
-            } else {
-                Console.WriteLine($"{MessagePrefix.Error} Failed to get status: {await response.Content.ReadAsStringAsync()}");
+            if (printResult) {
+                if (response.IsSuccessStatusCode) {
+                    var content = await response.Content.ReadAsStringAsync();
+                    Console.WriteLine($"{MessagePrefix.Status} {content}");
+                } else {
+                    Console.WriteLine($"{MessagePrefix.Error} Failed to get status: {await response.Content.ReadAsStringAsync()}");
+                }
             }
+            return response.IsSuccessStatusCode;
         }
     }
 } 

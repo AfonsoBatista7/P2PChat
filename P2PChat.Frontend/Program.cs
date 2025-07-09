@@ -16,7 +16,7 @@ namespace P2PChat.Frontend {
             int port = 8080; // Default port
             bool debug = false;
             string bootstrap = "";
-            string goExecutablePath = Path.Combine(Directory.GetCurrentDirectory(), "go-code", "chatp2p");
+            string goExecutablePath = Path.Combine(Directory.GetCurrentDirectory(), "P2PChat.LibP2P", "chatp2p");
 
             // Parse command line arguments
             for (int i = 0; i < args.Length; i++) {
@@ -51,22 +51,55 @@ namespace P2PChat.Frontend {
                 return;
             }
 
-            var goBackendManager = new GoBackendManager(goExecutablePath, port);
-            var client = new P2PClient(port);
+            var httpClient = new HttpClient();
+            string baseUrl = $"http://localhost:{port}";
+            var p2pManager = new P2PManager(goExecutablePath, port, httpClient, baseUrl);
             string peerId = Guid.NewGuid().ToString();
+
+            // Subscribe to log messages from the backend
+            p2pManager.Receiver.LogReceived += (logMessage) => {
+                lock (ConsoleState.ConsoleLock) {
+                    Console.Write("\r"); // Move to start of line
+                    Console.Write(new string(' ', Console.WindowWidth)); // Clear the line
+                    Console.Write("\r"); // Move back to start
+                    
+                    switch (logMessage.GetLogLevel()) {
+                        case LogLevel.Message:
+                            Console.WriteLine(logMessage.Message);
+                            break;
+                        case LogLevel.Error:
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine($"{MessagePrefix.GoBackend} {logMessage.Message}");
+                            Console.ResetColor();
+                            break;
+                        case LogLevel.Info:
+                            Console.ForegroundColor = ConsoleColor.Gray;
+                            Console.WriteLine($"{MessagePrefix.GoBackend} {logMessage.Message}");
+                            Console.ResetColor();
+                            break;
+                        case LogLevel.Debug:
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine($"{MessagePrefix.GoBackend} {logMessage.Message}");
+                            Console.ResetColor();
+                            break;
+                    }
+                    Console.Write("> ");
+                    Console.Write(ConsoleState.CurrentInput);
+                }
+            };
 
             // Set up Ctrl+C handler
             Console.CancelKeyPress += async (sender, e) => {
-                await client.CloseConnection();
+                await p2pManager.Client.CloseConnection();
                 Environment.Exit(0);
             };
 
             try {
                 // Start the Go backend
-                await goBackendManager.StartBackend();
+                await p2pManager.StartBackend();
 
                 Console.WriteLine($"Starting P2P client with ID: {peerId}");
-                await client.StartP2P(peerId, bootstrap, debug);
+                await p2pManager.Client.StartP2P(peerId, bootstrap, debug);
 
                 Console.WriteLine("Commands:");
                 Console.WriteLine("  /connect <peer-id> - Connect to a peer");
@@ -107,22 +140,21 @@ namespace P2PChat.Frontend {
                     if (!string.IsNullOrEmpty(input)) {
                         if (input.ToLower().StartsWith("/connect")) {
                             string targetPeerId = input.Substring("/connect".Length).Trim();
-                            await client.ConnectToPeer(targetPeerId);
+                            await p2pManager.Client.ConnectToPeer(targetPeerId);
                         } else if (input.ToLower().StartsWith("/status")) {
-                            await client.GetStatus();
+                            await p2pManager.Client.CheckStatus(true);
                         } else if (input.ToLower().StartsWith("/exit")) {
-                            await client.CloseConnection();
                             break;
                         } else {
-                            await client.SendMessage(input);
+                            await p2pManager.Client.SendMessage(input);
                         }
                     }
                 }
             } catch (Exception ex) {
                 Console.WriteLine($"Error: {ex.Message}");
-                await client.CloseConnection();
+                await p2pManager.Client.CloseConnection();
             } finally {
-                goBackendManager.StopBackend();
+                await p2pManager.StopBackend();
             }
         }
     }
