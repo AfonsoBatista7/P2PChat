@@ -6,14 +6,14 @@ WORKDIR /CompiledRelay
 
 COPY . .
 
+ENV CGO_ENABLED=0
 ENV GOOS=linux
-ENV GOARCH=arm64
 
-# build go
+# build go with specific flags for Alpine compatibility
 RUN go build -o relay
 
 # Use a minimal base image for running Go executables
-FROM alpine AS runtime
+FROM alpine:3.18 AS runtime
 
 # Set the working directory inside the container
 WORKDIR /relayFolder
