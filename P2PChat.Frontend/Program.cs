@@ -11,6 +11,8 @@ using System.Text;
 
 namespace P2PChat.Frontend {
     class Program {
+        static bool isExiting = false;
+        
         static async Task Main(string[] args) {
 
             int port = 8080; // Default port
@@ -90,8 +92,12 @@ namespace P2PChat.Frontend {
 
             // Set up Ctrl+C handler
             Console.CancelKeyPress += async (sender, e) => {
-                await p2pManager.Client.CloseConnection();
-                Environment.Exit(0);
+                if (!isExiting) {
+                    isExiting = true;
+                    e.Cancel = true; // Prevent abrupt termination
+                    await p2pManager.Client.CloseConnection();
+                    Environment.Exit(0);
+                }
             };
 
             try {
@@ -100,6 +106,52 @@ namespace P2PChat.Frontend {
 
                 Console.WriteLine($"Starting P2P client with ID: {peerId}");
                 await p2pManager.Client.StartP2P(peerId, bootstrap, debug);
+
+                // Show loading indicator while backend searches for peers
+                Console.WriteLine("🔍 Searching for peers on the network...");
+                bool hasConnected = false;
+                int loadingDots = 0;
+                string loadingChars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+                
+                // Start the discovery process
+                var discoveryTask = p2pManager.Client.TriggerDiscovery();
+                
+                // Show loading animation while waiting for discovery to complete
+                while (!discoveryTask.IsCompleted) {
+                    // Show animated loading indicator
+                    lock (ConsoleState.ConsoleLock) {
+                        Console.Write($"\r{loadingChars[loadingDots % loadingChars.Length]} Searching for peers");
+                        for (int i = 0; i < loadingDots % 4; i++) {
+                            Console.Write(".");
+                        }
+                        for (int i = loadingDots % 4; i < 3; i++) {
+                            Console.Write(" ");
+                        }
+                    }
+                    
+                    await Task.Delay(100); // Fast animation
+                    loadingDots++;
+                }
+                
+                // Get the discovery result
+                hasConnected = await discoveryTask;
+                
+                // Clear the loading line and show appropriate message
+                lock (ConsoleState.ConsoleLock) {
+                    Console.Write("\r");
+                    Console.Write(new string(' ', Console.WindowWidth));
+                    Console.Write("\r");
+                    
+                    if (hasConnected) {
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine("✅ Connected to the P2P network!");
+                        Console.ResetColor();
+                    } else {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine("⚠️  No peers found yet, but continuing to search in background...");
+                        Console.ResetColor();
+                    }
+                }
 
                 Console.WriteLine("Commands:");
                 Console.WriteLine("  /connect <peer-id> - Connect to a peer");
@@ -110,14 +162,14 @@ namespace P2PChat.Frontend {
                 Console.WriteLine("----------------------------------------");
 
                 string input = "";
-                while (true) {
+                while (!isExiting) {
                     lock (ConsoleState.ConsoleLock) {
                         Console.Write("> ");
                     }
                     input = "";
                     ConsoleState.CurrentInput = "";
 
-                    while (true) {
+                    while (!isExiting) {
                         if (Console.KeyAvailable) {
                             var key = Console.ReadKey(intercept: true);
                             if (key.Key == ConsoleKey.Enter) {
@@ -137,13 +189,15 @@ namespace P2PChat.Frontend {
                         }
                     }
 
-                    if (!string.IsNullOrEmpty(input)) {
+                    if (!isExiting && !string.IsNullOrEmpty(input)) {
                         if (input.ToLower().StartsWith("/connect")) {
                             string targetPeerId = input.Substring("/connect".Length).Trim();
                             await p2pManager.Client.ConnectToPeer(targetPeerId);
                         } else if (input.ToLower().StartsWith("/status")) {
                             await p2pManager.Client.CheckStatus(true);
                         } else if (input.ToLower().StartsWith("/exit")) {
+                            isExiting = true;
+                            Console.WriteLine("Exiting...");
                             break;
                         } else {
                             await p2pManager.Client.SendMessage(input);

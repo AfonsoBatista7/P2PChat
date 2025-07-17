@@ -8,7 +8,6 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
@@ -17,26 +16,26 @@ import (
 
 // PeerManager struct to manage peer state
 type PeerManager struct {
-	done        chan bool // Channel to signal termination
-	disconnect  chan bool // Channel to signal termination
-	unsubscribe chan bool // Channel to signal termination
+	done        chan bool    // Channel to signal termination
+	disconnect  chan bool    // Channel to signal termination
+	unsubscribe chan bool    // Channel to signal termination
+	dht         *dht.IpfsDHT // Store DHT reference for cleanup
 }
 
 var topicHandle *pubsub.Topic
 
-func (p *PeerManager) StartProtocolP2P(cBootstrapPeers []string, debug bool, playerId string, hostData host.Host, logger *Logger, connectionManager *ConnectionManager) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+// initializeDHT sets up the DHT and connects to bootstrap peers
+func (p *PeerManager) initializeDHT(ctx context.Context, hostData host.Host, cBootstrapPeers []string, debug bool, logger *Logger) (*dht.IpfsDHT, error) {
 	// Set up DHT
 	kademliaDht, err := dht.New(ctx, hostData)
 	if err != nil {
 		logger.LogToFrontend("ERROR", "Failed to create DHT: %s", err)
-		return
+		return nil, err
 	}
 
 	if err = kademliaDht.Bootstrap(ctx); err != nil {
 		logger.LogToFrontend("ERROR", "Failed to bootstrap the DHT: %s", err)
+		return nil, err
 	}
 
 	var wg sync.WaitGroup
@@ -62,6 +61,22 @@ func (p *PeerManager) StartProtocolP2P(cBootstrapPeers []string, debug bool, pla
 		}
 	}
 	wg.Wait()
+
+	return kademliaDht, nil
+}
+
+func (p *PeerManager) StartProtocolP2P(cBootstrapPeers []string, debug bool, playerId string, hostData host.Host, logger *Logger, connectionManager *ConnectionManager) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize DHT
+	kademliaDht, err := p.initializeDHT(ctx, hostData, cBootstrapPeers, debug, logger)
+	if err != nil {
+		return
+	}
+
+	// Store DHT reference for cleanup
+	p.dht = kademliaDht
 
 	// Set up GossipSub
 	gossipSub, err := pubsub.NewGossipSub(ctx, hostData)
@@ -116,75 +131,43 @@ func (p *PeerManager) publishMessage(ctx context.Context, message string, logger
 }
 
 func (p *PeerManager) discover(ctx context.Context, host host.Host, kademliaDht *dht.IpfsDHT, logger *Logger, connectionManager *ConnectionManager) {
-	discovery := routing.NewRoutingDiscovery(kademliaDht)
+	// Create discovery configuration
+	config := DiscoveryConfig{
+		RendezvousString:  RendezvousString,
+		ConnectionTimeout: ConnectionTimeout,
+		AdvertiseInterval: AdvertiseInterval,
+		ValidationTimeout: 1 * time.Second,
+		MaxConcurrent:     5,
+	}
+
+	// Create discovery manager
+	discoveryManager := NewPeerDiscoveryManager(config, connectionManager, logger)
 
 	// Advertise our presence
+	discovery := routing.NewRoutingDiscovery(kademliaDht)
 	util.Advertise(ctx, discovery, RendezvousString)
 
-	// Use a more reasonable ticker interval (5 seconds)
-	ticker := time.NewTicker(ConnectionTimeout)
+	// Give other peers a moment to advertise themselves
+	time.Sleep(500 * time.Millisecond)
 
-	// Track the previous list of peers
-	var previousPeers []peer.AddrInfo
-	previousPeersMutex := &sync.RWMutex{}
+	// Perform initial discovery
+	initialResult := discoveryManager.DiscoverPeers(ctx, host, kademliaDht)
+	discoveryManager.UpdatePreviousPeers(initialResult.Peers)
+
+	// Set up tickers
+	ticker := time.NewTicker(ConnectionTimeout)
+	advertiseTicker := time.NewTicker(AdvertiseInterval)
 
 	for {
 		select {
 		case <-p.done:
 			return
 		case <-ticker.C:
-			kademliaDht.RefreshRoutingTable()
-			peers, err := util.FindPeers(ctx, discovery, RendezvousString)
-			if err != nil {
-				logger.LogToFrontend("ERROR", "Error finding peers: %v", err)
-				continue
-			}
-
-			// Get the current list of peers
-			currentPeers := peers
-
-			// Compare with previous list to find new peers
-			previousPeersMutex.RLock()
-			newPeers := findNewPeers(currentPeers, previousPeers)
-			previousPeersMutex.RUnlock()
-
-			// Update previous peers list
-			previousPeersMutex.Lock()
-			previousPeers = currentPeers
-			previousPeersMutex.Unlock()
-
-			// Only try to connect to new peers
-			for _, peer := range newPeers {
-				if peer.ID == host.ID() {
-					continue
-				}
-
-				// Check if we've failed to connect too many times
-				connectionManager.failedConnectionsMutex.RLock()
-				failCount := connectionManager.failedConnections[peer.ID]
-				connectionManager.failedConnectionsMutex.RUnlock()
-
-				if failCount >= 2 { // Skip if we've failed 2 or more times
-					continue
-				}
-
-				// Update peerstore with peer addresses
-				host.Peerstore().AddAddrs(peer.ID, peer.Addrs, peerstore.TempAddrTTL)
-
-				connectedness := host.Network().Connectedness(peer.ID)
-
-				if connectedness != network.Connected {
-					_, err := host.Network().DialPeer(ctx, peer.ID)
-					if err != nil {
-						connectionManager.failedConnectionsMutex.Lock()
-						connectionManager.failedConnections[peer.ID]++
-						connectionManager.failedConnectionsMutex.Unlock()
-						continue
-					}
-
-					logger.LogToFrontend("INFO", "Connected to peer %s", peer.ID.String())
-				}
-			}
+			// Perform periodic discovery (this already handles filtering and connection)
+			discoveryManager.DiscoverPeers(ctx, host, kademliaDht)
+		case <-advertiseTicker.C:
+			// Re-advertise ourselves to stay discoverable
+			util.Advertise(ctx, discovery, RendezvousString)
 		}
 	}
 }
@@ -217,17 +200,25 @@ func (p *PeerManager) subscribe(subscriber *pubsub.Subscription, ctx context.Con
 	}
 }
 
-// Helper function to find peers that are in currentPeers but not in previousPeers
-func findNewPeers(currentPeers, previousPeers []peer.AddrInfo) []peer.AddrInfo {
-	previousPeerMap := make(map[peer.ID]struct{})
-	for _, p := range previousPeers {
-		previousPeerMap[p.ID] = struct{}{}
-	}
-	var newPeers []peer.AddrInfo
-	for _, p := range currentPeers {
-		if _, exists := previousPeerMap[p.ID]; !exists {
-			newPeers = append(newPeers, p)
+// GetDHT returns the DHT reference for cleanup
+func (p *PeerManager) GetDHT() *dht.IpfsDHT {
+	return p.dht
+}
+
+// cleanupDHT removes our advertisement from the DHT when shutting down
+func (p *PeerManager) cleanupDHT(kademliaDht *dht.IpfsDHT, logger *Logger) {
+	logger.LogToFrontend("INFO", "Cleaning up DHT advertisements...")
+
+	// Note: libp2p doesn't provide a direct way to remove advertisements
+	// But we can help by not advertising anymore and letting them expire
+	// The DHT will eventually clean up stale entries
+
+	// Close the DHT properly
+	if kademliaDht != nil {
+		if err := kademliaDht.Close(); err != nil {
+			logger.LogToFrontend("ERROR", "Error closing DHT: %v", err)
+		} else {
+			logger.LogToFrontend("INFO", "DHT closed successfully")
 		}
 	}
-	return newPeers
 }

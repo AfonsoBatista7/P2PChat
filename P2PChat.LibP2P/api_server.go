@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
 )
@@ -39,6 +41,7 @@ func (as *APIServer) StartHTTPServer(port string) {
 	http.HandleFunc("/api/send", as.handleSend)
 	http.HandleFunc("/api/close", as.handleClose)
 	http.HandleFunc("/api/status", as.handleStatus)
+	http.HandleFunc("/api/discover", as.handleDiscover)
 	http.HandleFunc("/api/logs", as.handleLogs)
 
 	server := &http.Server{
@@ -85,6 +88,11 @@ func (as *APIServer) handleClose(w http.ResponseWriter, r *http.Request) {
 	connections := as.connectionManager.GetConnections()
 	for _, conn := range connections {
 		as.connectionManager.removeConnection(conn)
+	}
+
+	// Clean up DHT advertisements
+	if dht := as.peerManager.GetDHT(); dht != nil {
+		as.peerManager.cleanupDHT(dht, as.logger)
 	}
 
 	// Close the host to disconnect from relay
@@ -151,10 +159,12 @@ func (as *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	connectionCount := len(as.connectionManager.GetConnections())
+
 	status := map[string]interface{}{
-		"connected": len(as.connectionManager.GetConnections()) > 0,
-		"peers":     len(as.connectionManager.GetConnections()),
-		// Remove hostData reference or replace with a proper field if needed
+		"connected": connectionCount > 0,
+		"peers":     connectionCount,
+		"hasPeers":  connectionCount > 0,
 	}
 
 	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Status retrieved", Error: fmt.Sprintf("%v", status)})
@@ -186,6 +196,50 @@ func (as *APIServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func (as *APIServer) handleDiscover(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	as.logger.LogToFrontend("INFO", "Starting initial peer discovery...")
+
+	// Create discovery configuration
+	config := DiscoveryConfig{
+		RendezvousString:  RendezvousString,
+		ConnectionTimeout: ConnectionTimeout,
+		AdvertiseInterval: AdvertiseInterval,
+		ValidationTimeout: 1 * time.Second,
+		MaxConcurrent:     5,
+	}
+
+	// Create discovery manager
+	discoveryManager := NewPeerDiscoveryManager(config, as.connectionManager, as.logger)
+
+	// Get DHT from peer manager
+	dht := as.peerManager.GetDHT()
+	if dht == nil {
+		as.sendJSONResponse(w, APIResponse{Success: false, Error: "DHT not initialized"})
+		return
+	}
+
+	// Perform initial discovery
+	ctx := context.Background()
+	discoveryManager.DiscoverPeers(ctx, as.hostData, dht)
+
+	// Check connections after discovery
+	connectionCount := len(as.connectionManager.GetConnections())
+	as.logger.LogToFrontend("INFO", "Discovery completed - found %d connections", connectionCount)
+
+	status := map[string]interface{}{
+		"connected": connectionCount > 0,
+		"peers":     connectionCount,
+		"hasPeers":  connectionCount > 0,
+	}
+
+	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Discovery completed", Error: fmt.Sprintf("%v", status)})
 }
 
 func (as *APIServer) sendJSONResponse(w http.ResponseWriter, response APIResponse) {

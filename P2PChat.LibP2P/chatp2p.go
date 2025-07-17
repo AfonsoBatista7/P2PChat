@@ -16,7 +16,6 @@ func main() {
 		port = &envPort
 	}
 
-	// Log the port being used
 	logger := NewLogger()
 
 	// Initialize PeerManager

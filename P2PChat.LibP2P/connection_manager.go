@@ -47,8 +47,8 @@ func (cm *ConnectionManager) SetContext(ctx context.Context) {
 
 // HandleStream handles incoming streams from peers
 func (cm *ConnectionManager) HandleStream(s network.Stream) {
-	cm.logger.LogToFrontend("INFO", "Got a new stream!")
-	cm.logger.LogToFrontend("INFO", "Connected to peer!")
+	peerID := s.Conn().RemotePeer()
+	cm.logger.LogToFrontend("INFO", "Connected to peer: %s", peerID)
 
 	// Create a buffer stream for non-blocking read and write.
 	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
@@ -174,7 +174,7 @@ func (cm *ConnectionManager) ConnectToPeer(peerID peer.ID) (*Connection, error) 
 		cm.logger.LogToFrontend("ERROR", "Failed to create new stream: %s", err)
 		return nil, err
 	}
-	cm.logger.LogToFrontend("INFO", "Established connection to destination")
+	cm.logger.LogToFrontend("INFO", "Connected to peer: %s", peerID)
 
 	// Create a buffered stream so that read and writes are non-blocking.
 	rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
