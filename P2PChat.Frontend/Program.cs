@@ -112,12 +112,14 @@ namespace P2PChat.Frontend {
                 bool hasConnected = false;
                 int loadingDots = 0;
                 string loadingChars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
-                
+
                 // Start the discovery process
                 var discoveryTask = p2pManager.Client.TriggerDiscovery();
+
                 
                 // Show loading animation while waiting for discovery to complete
                 while (!discoveryTask.IsCompleted) {
+
                     // Show animated loading indicator
                     lock (ConsoleState.ConsoleLock) {
                         Console.Write($"\r{loadingChars[loadingDots % loadingChars.Length]} Searching for peers");
@@ -132,8 +134,7 @@ namespace P2PChat.Frontend {
                     await Task.Delay(100); // Fast animation
                     loadingDots++;
                 }
-                
-                // Get the discovery result
+
                 hasConnected = await discoveryTask;
                 
                 // Clear the loading line and show appropriate message

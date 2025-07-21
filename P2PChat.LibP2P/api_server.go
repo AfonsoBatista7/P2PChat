@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
+	"github.com/libp2p/go-libp2p/p2p/discovery/util"
 )
 
 // APIServer handles all HTTP API operations
@@ -206,6 +208,12 @@ func (as *APIServer) handleDiscover(w http.ResponseWriter, r *http.Request) {
 
 	as.logger.LogToFrontend("INFO", "Starting initial peer discovery...")
 
+	// Wait for DHT to be ready (timeout after 10 seconds)
+	if !as.peerManager.WaitForDHTReady(10 * time.Second) {
+		as.sendJSONResponse(w, APIResponse{Success: false, Error: "DHT initialization timeout"})
+		return
+	}
+
 	// Create discovery configuration
 	config := DiscoveryConfig{
 		RendezvousString:  RendezvousString,
@@ -225,13 +233,31 @@ func (as *APIServer) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Perform initial discovery
+	// Advertise our presence first
 	ctx := context.Background()
-	discoveryManager.DiscoverPeers(ctx, as.hostData, dht)
+	discovery := routing.NewRoutingDiscovery(dht)
+	util.Advertise(ctx, discovery, RendezvousString)
+	as.logger.LogToFrontend("INFO", "Advertised presence in DHT")
 
-	// Check connections after discovery
+	// Give other peers a moment to advertise themselves
+	time.Sleep(1 * time.Second)
+
+	// Perform initial discovery
+	result := discoveryManager.DiscoverPeers(ctx, as.hostData, dht)
+
+	// Check connections after discovery and stream establishment
 	connectionCount := len(as.connectionManager.GetConnections())
+
+	// If no connections tracked but we had successful network connections,
+	// count the network connections instead
+	if connectionCount == 0 && result.SuccessCount > 0 {
+		connectionCount = result.SuccessCount
+	}
+
 	as.logger.LogToFrontend("INFO", "Discovery completed - found %d connections", connectionCount)
+
+	// Start background discovery process after initial discovery completes
+	as.peerManager.StartBackgroundDiscovery()
 
 	status := map[string]interface{}{
 		"connected": connectionCount > 0,

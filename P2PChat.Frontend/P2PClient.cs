@@ -134,16 +134,29 @@ namespace P2PChat.Frontend
             return false;
         }
 
-        public async Task<bool> TriggerDiscovery() {
+                public async Task<bool> TriggerDiscovery() {
             try {
                 var response = await _httpClient.PostAsync($"{_baseUrl}/api/discover", new StringContent("{}", Encoding.UTF8, "application/json"));
+
                 if (response.IsSuccessStatusCode) {
                     var content = await response.Content.ReadAsStringAsync();
-                    
+
                     // Parse the discovery response
                     try {
                         var statusResponse = JsonSerializer.Deserialize<StatusResponse>(content);
-                        if (statusResponse?.Error != null) {
+                        
+                        // Try manual JSON parsing as fallback since Error field might not deserialize properly
+                        if (statusResponse?.Error == null) {
+                            // Check for peers in the raw content
+                            if (content.Contains("hasPeers:true") || 
+                                content.Contains("peers:1") || 
+                                content.Contains("peers:2") || 
+                                content.Contains("peers:3") || 
+                                content.Contains("peers:4") || 
+                                content.Contains("peers:5")) {
+                                return true;
+                            }
+                        } else {
                             var statusString = statusResponse.Error?.ToString() ?? "";
                             if (statusString.Contains("hasPeers:true") || 
                                 statusString.Contains("peers:1") || 
@@ -169,6 +182,7 @@ namespace P2PChat.Frontend
             } catch (Exception) {
                 // If discovery fails, assume no connections
             }
+
             return false;
         }
     }

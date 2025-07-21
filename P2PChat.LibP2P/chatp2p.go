@@ -20,7 +20,8 @@ func main() {
 
 	// Initialize PeerManager
 	pm := &PeerManager{
-		done: make(chan bool),
+		done:     make(chan bool),
+		dhtReady: make(chan bool),
 	}
 
 	// Initialize host (P2P node)

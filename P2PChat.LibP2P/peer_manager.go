@@ -16,10 +16,15 @@ import (
 
 // PeerManager struct to manage peer state
 type PeerManager struct {
-	done        chan bool    // Channel to signal termination
-	disconnect  chan bool    // Channel to signal termination
-	unsubscribe chan bool    // Channel to signal termination
-	dht         *dht.IpfsDHT // Store DHT reference for cleanup
+	done              chan bool          // Channel to signal termination
+	disconnect        chan bool          // Channel to signal termination
+	unsubscribe       chan bool          // Channel to signal termination
+	dht               *dht.IpfsDHT       // Store DHT reference for cleanup
+	dhtReady          chan bool          // Channel to signal DHT is ready
+	hostData          host.Host          // Store host reference for background discovery
+	kademliaDht       *dht.IpfsDHT       // Store DHT reference for background discovery
+	logger            *Logger            // Store logger reference for background discovery
+	connectionManager *ConnectionManager // Store connection manager reference for background discovery
 }
 
 var topicHandle *pubsub.Topic
@@ -78,6 +83,9 @@ func (p *PeerManager) StartProtocolP2P(cBootstrapPeers []string, debug bool, pla
 	// Store DHT reference for cleanup
 	p.dht = kademliaDht
 
+	// Signal that DHT is ready
+	close(p.dhtReady)
+
 	// Set up GossipSub
 	gossipSub, err := pubsub.NewGossipSub(ctx, hostData)
 	if err != nil {
@@ -85,7 +93,11 @@ func (p *PeerManager) StartProtocolP2P(cBootstrapPeers []string, debug bool, pla
 		return
 	}
 
-	go p.discover(ctx, hostData, kademliaDht, logger, connectionManager)
+	// Store references for background discovery
+	p.hostData = hostData
+	p.kademliaDht = kademliaDht
+	p.logger = logger
+	p.connectionManager = connectionManager
 
 	// Join topic and subscribe
 	joinTopic(TopicName, gossipSub, hostData, ctx, p, logger)
@@ -221,4 +233,26 @@ func (p *PeerManager) cleanupDHT(kademliaDht *dht.IpfsDHT, logger *Logger) {
 			logger.LogToFrontend("INFO", "DHT closed successfully")
 		}
 	}
+}
+
+// WaitForDHTReady waits until DHT is initialized
+func (p *PeerManager) WaitForDHTReady(timeout time.Duration) bool {
+	select {
+	case <-p.dhtReady:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// StartBackgroundDiscovery starts the background discovery process
+func (p *PeerManager) StartBackgroundDiscovery() {
+	if p.hostData == nil || p.kademliaDht == nil || p.logger == nil || p.connectionManager == nil {
+		p.logger.LogToFrontend("ERROR", "Cannot start background discovery - required components not initialized")
+		return
+	}
+
+	ctx := context.Background()
+	p.logger.LogToFrontend("INFO", "Starting background discovery process...")
+	go p.discover(ctx, p.hostData, p.kademliaDht, p.logger, p.connectionManager)
 }

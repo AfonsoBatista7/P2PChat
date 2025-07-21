@@ -170,6 +170,7 @@ func (pdm *PeerDiscoveryManager) connectToPeersParallel(ctx context.Context, hos
 
 	for _, peer := range peers {
 		if peer.ID == host.ID() {
+			// Skip self
 			continue
 		}
 
@@ -177,15 +178,18 @@ func (pdm *PeerDiscoveryManager) connectToPeersParallel(ctx context.Context, hos
 		pdm.markPeerAsAttempted(peer.ID)
 
 		// Skip if we've failed too many times
-		if pdm.getFailedCount(peer.ID) >= 2 {
+		failedCount := pdm.getFailedCount(peer.ID)
+		if failedCount >= 2 {
+			// Skip peer due to failed attempts
 			continue
 		}
 
 		wg.Add(1)
+		peerToConnect := peer // Capture in local variable
 		go func() {
-			// Capture the peer variable in the closure
-			peerToConnect := peer
 			defer wg.Done()
+
+			// Starting connection attempt
 
 			// Acquire semaphore slot
 			semaphore <- struct{}{}
@@ -195,11 +199,13 @@ func (pdm *PeerDiscoveryManager) connectToPeersParallel(ctx context.Context, hos
 			host.Peerstore().AddAddrs(peerToConnect.ID, peerToConnect.Addrs, peerstore.TempAddrTTL)
 
 			connectedness := host.Network().Connectedness(peerToConnect.ID)
+
 			if connectedness != network.Connected {
 				// Use timeout for each individual connection attempt
 				connectCtx, cancel := context.WithTimeout(ctx, pdm.config.ConnectionTimeout)
 				defer cancel()
 
+				// Attempting to dial peer
 				_, err := host.Network().DialPeer(connectCtx, peerToConnect.ID)
 				if err != nil {
 					pdm.markPeerAsFailed(peerToConnect.ID)
@@ -212,17 +218,31 @@ func (pdm *PeerDiscoveryManager) connectToPeersParallel(ctx context.Context, hos
 					return
 				}
 
+				// DialPeer succeeded
+
 				resultMutex.Lock()
 				successCount++
 				resultMutex.Unlock()
 
 				pdm.logger.LogToFrontend("INFO", "Connected: %s", peerToConnect.ID.String())
+
+				// Check connection status
+			} else {
+				// Peer already connected, counting as success
+
+				resultMutex.Lock()
+				successCount++
+				resultMutex.Unlock()
+
+				pdm.logger.LogToFrontend("INFO", "Already connected: %s", peerToConnect.ID.String())
 			}
 		}()
 	}
 
 	// Wait for all connection attempts to complete
+	// Waiting for connection attempts to complete
 	wg.Wait()
+	// All connection attempts completed
 
 	if successCount > 0 || failureCount > 0 {
 		pdm.logger.LogToFrontend("INFO", "%d connected, %d failed", successCount, failureCount)
