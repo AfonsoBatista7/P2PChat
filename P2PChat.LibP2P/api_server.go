@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -181,21 +182,30 @@ func (as *APIServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	logChannel := as.logger.GetLogChannel()
-	select {
-	case logMsg := <-logChannel:
-		data, err := json.Marshal(logMsg)
-		if err != nil {
-			as.logger.LogToFrontend("ERROR", "Failed to marshal log message: %v", err)
-		}
-		_, err = fmt.Fprintf(w, "data: %s\n\n", data)
-		if err != nil {
-			as.logger.LogToFrontend("ERROR", "Failed to write log message: %v", err)
+
+	// Keep the connection alive and continuously stream logs
+	for {
+		select {
+		case logMsg := <-logChannel:
+			data, err := json.Marshal(logMsg)
+			if err != nil {
+				log.Printf("Failed to marshal log message: %v", err)
+				continue
+			}
+			_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+			if err != nil {
+				// Client disconnected
+				return
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		case <-r.Context().Done():
+			// Client disconnected
 			return
-		}
-		if flusher, ok := w.(http.Flusher); ok {
-			flusher.Flush()
 		}
 	}
 }

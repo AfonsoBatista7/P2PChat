@@ -19,8 +19,8 @@ const (
 	RendezvousString  = "METAVERSE"
 	ProtocolID        = "/metaverse/1.0.0"
 	TopicName         = "chat"
-	ConnectionTimeout = 5 * time.Second
-	AdvertiseInterval = 2 * time.Minute // How often to re-advertise ourselves
+	ConnectionTimeout = 30 * time.Second // Increased from 5 seconds to 30 seconds
+	AdvertiseInterval = 2 * time.Minute  // How often to re-advertise ourselves
 	LogChannelBuffer  = 100
 	LogTimeout        = 1 * time.Second
 )

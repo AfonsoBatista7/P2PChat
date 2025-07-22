@@ -134,6 +134,9 @@ func (cm *ConnectionManager) WriteData(sendData string) {
 			cm.removeConnection(conn)
 			continue
 		}
+
+		// Update LastSeen timestamp to keep connection alive
+		conn.LastSeen = time.Now()
 	}
 }
 

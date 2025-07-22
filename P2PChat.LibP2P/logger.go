@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 )
 
 // Logger handles all logging operations
@@ -24,16 +23,29 @@ func (l *Logger) LogToFrontend(level string, format string, args ...interface{})
 	message := fmt.Sprintf(format, args...)
 	logMsg := LogMessage{Level: level, Message: message}
 
-	// Try to send to channel with timeout
+	// Try to send to channel non-blocking
 	select {
 	case l.logChannel <- logMsg:
 		// Successfully sent to channel
-	case <-time.After(1 * time.Second):
-		// Channel is full or blocked, log to console
-		log.Printf("[%s] Failed to send log to channel: %s", level, message)
+	default:
+		// Channel is full, drop oldest message and add new one
+		select {
+		case <-l.logChannel:
+			// Removed oldest message
+		default:
+			// Channel was empty after all
+		}
+		// Try to send again
+		select {
+		case l.logChannel <- logMsg:
+			// Successfully sent after making space
+		default:
+			// Still full, log to console as fallback
+			log.Printf("[%s] Log channel full, dropped message: %s", level, message)
+		}
 	}
 
-	// Only log to console if it's an error
+	// Always log errors to console as well
 	if level == "ERROR" {
 		log.Printf("[%s] %s", level, message)
 	}
