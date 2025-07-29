@@ -1,0 +1,31 @@
+#BUILD Go Lib
+FROM golang:1.22 AS builder-go
+
+# Set the working directory inside the container
+WORKDIR /CompiledRelay
+
+COPY . .
+
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+
+# build go with specific flags for Alpine compatibility
+RUN go build -o relay
+
+# Use a minimal base image for running Go executables
+FROM alpine:3.18 AS runtime
+
+# Set the working directory inside the container
+WORKDIR /relayFolder
+
+# Copy the compiled binary into the container
+COPY --from=builder-go /CompiledRelay/relay .
+
+# Make the binary executable
+RUN chmod +x relay
+
+EXPOSE 4001/tcp
+EXPOSE 4001/udp
+
+# Command to run the executable
+ENTRYPOINT ["./relay"]

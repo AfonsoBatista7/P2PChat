@@ -15,5 +15,5 @@ How it works:
 
 Getting Started:
 - Build the Go backend (go build -o chatp2p ./go-code)
-- Run the C# frontend (dotnet run --project P2PChat.Frontend -- -port <port-num> -bootstrap "<relay-address>")
+- Run the C# frontend (dotnet run --project P2PChat.Frontend -- -port port-num -bootstrap "relay-address")
 - Connect to peers and start chatting!
