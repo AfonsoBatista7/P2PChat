@@ -63,6 +63,7 @@ namespace P2PChat.Frontend
                 
                 if (response.IsSuccessStatusCode) {
                     var responseContent = await response.Content.ReadAsStringAsync();
+
                     lock (ConsoleState.ConsoleLock) {
                         Console.WriteLine($"{MessagePrefix.Status} Connection closed...");
                     }

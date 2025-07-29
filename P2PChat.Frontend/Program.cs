@@ -163,6 +163,7 @@ namespace P2PChat.Frontend {
                 Console.WriteLine("----------------------------------------");
 
                 string input = "";
+              
                 while (!isExiting) {
                     lock (ConsoleState.ConsoleLock) {
                         Console.Write("> ");
