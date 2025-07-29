@@ -1,64 +1,87 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
-	"github.com/libp2p/go-libp2p/p2p/discovery/util"
 )
 
-// APIServer handles all HTTP API operations
-type APIServer struct {
-	peerManager       *PeerManager
-	connectionManager *ConnectionManager
-	logger            *Logger
-	host              interface{} // Will be properly typed when host is available
-	hostData          host.Host
+// HTTPRequestHandler handles HTTP-specific request/response translation
+// It translates between HTTP and the protocol-agnostic PeerService
+type HTTPRequestHandler struct {
+	peerService PeerService
 }
 
-// NewAPIServer creates a new API server
-func NewAPIServer(peerManager *PeerManager, connectionManager *ConnectionManager, logger *Logger, hostData host.Host) *APIServer {
-	return &APIServer{
-		peerManager:       peerManager,
-		connectionManager: connectionManager,
-		logger:            logger,
-		hostData:          hostData,
+// NewHTTPRequestHandler creates a new HTTP request handler (legacy constructor for backward compatibility)
+func NewAPIServer(peerManager *PeerManager, connectionManager *ConnectionManager, logger *Logger, hostData host.Host) *HTTPRequestHandler {
+	peerService := NewPeerService(peerManager, connectionManager, logger, hostData)
+	return &HTTPRequestHandler{
+		peerService: peerService,
 	}
 }
 
-// SetHost sets the host for status operations
-func (as *APIServer) SetHost(host interface{}) {
-	as.host = host
-}
-
-// StartHTTPServer starts the HTTP server
-func (as *APIServer) StartHTTPServer(port string) {
-	http.HandleFunc("/api/start", as.handleStart)
-	http.HandleFunc("/api/connect", as.handleConnect)
-	http.HandleFunc("/api/send", as.handleSend)
-	http.HandleFunc("/api/close", as.handleClose)
-	http.HandleFunc("/api/status", as.handleStatus)
-	http.HandleFunc("/api/discover", as.handleDiscover)
-	http.HandleFunc("/api/logs", as.handleLogs)
-
-	server := &http.Server{
-		Addr: ":" + port,
+// NewAPIServerWithService creates a new HTTP request handler with a PeerService
+func NewAPIServerWithService(peerService PeerService) *HTTPRequestHandler {
+	return &HTTPRequestHandler{
+		peerService: peerService,
 	}
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			as.logger.LogToFrontend("ERROR", "HTTP server failed: %v", err)
-		}
-	}()
 }
 
-func (as *APIServer) handleStart(w http.ResponseWriter, r *http.Request) {
+// Protocol-agnostic business logic methods
+// These can be called from any communication protocol
+
+// ProcessStartRequest handles P2P network startup
+func (h *HTTPRequestHandler) ProcessStartRequest(bootstrap string, debug bool, peerID string) error {
+	return h.peerService.StartP2P(bootstrap, debug, peerID)
+}
+
+// ProcessSendRequest handles message sending
+func (h *HTTPRequestHandler) ProcessSendRequest(message string) error {
+	return h.peerService.SendMessage(message)
+}
+
+// ProcessConnectRequest handles peer connection
+func (h *HTTPRequestHandler) ProcessConnectRequest(peerID string) error {
+	return h.peerService.ConnectToPeer(peerID)
+}
+
+// ProcessDiscoverRequest handles peer discovery
+func (h *HTTPRequestHandler) ProcessDiscoverRequest() (*PeerDiscoveryResult, error) {
+	return h.peerService.DiscoverPeers()
+}
+
+// ProcessStatusRequest handles status retrieval
+func (h *HTTPRequestHandler) ProcessStatusRequest() (bool, int, error) {
+	return h.peerService.GetStatus()
+}
+
+// ProcessCloseRequest handles P2P network shutdown
+func (h *HTTPRequestHandler) ProcessCloseRequest() error {
+	return h.peerService.Close()
+}
+
+// GetLogChannel returns the log channel (protocol-agnostic)
+func (h *HTTPRequestHandler) GetLogChannel() <-chan LogMessage {
+	return h.peerService.GetLogChannel()
+}
+
+// HTTP-specific methods below (these translate HTTP ↔ business logic)
+
+// SetupRoutes configures the HTTP routes
+func (h *HTTPRequestHandler) SetupRoutes() {
+	http.HandleFunc("/api/start", h.handleStart)
+	http.HandleFunc("/api/connect", h.handleConnect)
+	http.HandleFunc("/api/send", h.handleSend)
+	http.HandleFunc("/api/close", h.handleClose)
+	http.HandleFunc("/api/status", h.handleStatus)
+	http.HandleFunc("/api/discover", h.handleDiscover)
+	http.HandleFunc("/api/logs", h.handleLogs)
+}
+
+func (h *HTTPRequestHandler) handleStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -66,50 +89,33 @@ func (as *APIServer) handleStart(w http.ResponseWriter, r *http.Request) {
 
 	var req APIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		as.logger.LogToFrontend("ERROR", "Invalid request body: %v", err)
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "Invalid request body"})
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: "Invalid request body"})
 		return
 	}
 
 	go func() {
-		as.peerManager.StartProtocolP2P([]string{req.Bootstrap}, req.Debug, req.PeerID, as.hostData, as.logger, as.connectionManager)
+		h.ProcessStartRequest(req.Bootstrap, req.Debug, req.PeerID)
 	}()
 
-	as.sendJSONResponse(w, APIResponse{Success: true, Message: "P2P network started"})
+	h.sendJSONResponse(w, APIResponse{Success: true, Message: "P2P network started"})
 }
 
-func (as *APIServer) handleClose(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPRequestHandler) handleClose(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Close all network connections properly
-	as.logger.LogToFrontend("INFO", "Closing all network connections...")
-
-	// Close all connections in the connection manager
-	connections := as.connectionManager.GetConnections()
-	for _, conn := range connections {
-		as.connectionManager.removeConnection(conn)
+	err := h.ProcessCloseRequest()
+	if err != nil {
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: err.Error()})
+		return
 	}
 
-	// Clean up DHT advertisements
-	if dht := as.peerManager.GetDHT(); dht != nil {
-		as.peerManager.cleanupDHT(dht, as.logger)
-	}
-
-	// Close the host to disconnect from relay
-	if as.hostData != nil {
-		as.logger.LogToFrontend("INFO", "Disconnecting from relay...")
-		as.hostData.Close()
-	}
-
-	// Signal done after closing connections
-	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Peer connection closed"})
-	as.peerManager.done <- true
+	h.sendJSONResponse(w, APIResponse{Success: true, Message: "Peer connection closed"})
 }
 
-func (as *APIServer) handleConnect(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPRequestHandler) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -117,24 +123,25 @@ func (as *APIServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	var req APIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "Invalid request body"})
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: "Invalid request body"})
 		return
 	}
 
 	if req.PeerID == "" {
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "PeerID is required"})
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: "PeerID is required"})
 		return
 	}
 
-	// Use connectionManager to connect to peer
-	// TODO: Convert req.PeerID (string) to peer.ID as needed
-	// Example: peerID, err := peer.Decode(req.PeerID)
-	// Then: as.connectionManager.ConnectToPeer(peerID)
+	err := h.ProcessConnectRequest(req.PeerID)
+	if err != nil {
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
 
-	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Connection attempt initiated"})
+	h.sendJSONResponse(w, APIResponse{Success: true, Message: "Connection attempt initiated"})
 }
 
-func (as *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPRequestHandler) handleSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -142,38 +149,46 @@ func (as *APIServer) handleSend(w http.ResponseWriter, r *http.Request) {
 
 	var req APIRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "Invalid request body"})
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: "Invalid request body"})
 		return
 	}
 
 	if req.Message == "" {
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "Message is required"})
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: "Message is required"})
 		return
 	}
 
-	// Use connectionManager to send data to all peers
-	as.peerManager.publishMessage(r.Context(), req.Message, as.logger)
-	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Message sent"})
+	err := h.ProcessSendRequest(req.Message)
+	if err != nil {
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	h.sendJSONResponse(w, APIResponse{Success: true, Message: "Message sent"})
 }
 
-func (as *APIServer) handleStatus(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPRequestHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	connectionCount := len(as.connectionManager.GetConnections())
-
-	status := map[string]interface{}{
-		"connected": connectionCount > 0,
-		"peers":     connectionCount,
-		"hasPeers":  connectionCount > 0,
+	connected, peers, err := h.ProcessStatusRequest()
+	if err != nil {
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: err.Error()})
+		return
 	}
 
-	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Status retrieved", Error: fmt.Sprintf("%v", status)})
+	status := map[string]interface{}{
+		"connected": connected,
+		"peers":     peers,
+		"hasPeers":  connected,
+	}
+
+	h.sendJSONResponse(w, APIResponse{Success: true, Message: "Status retrieved", Error: fmt.Sprintf("%v", status)})
 }
 
-func (as *APIServer) handleLogs(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPRequestHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -184,7 +199,7 @@ func (as *APIServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	logChannel := as.logger.GetLogChannel()
+	logChannel := h.GetLogChannel()
 
 	// Keep the connection alive and continuously stream logs
 	for {
@@ -210,75 +225,28 @@ func (as *APIServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (as *APIServer) handleDiscover(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPRequestHandler) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	as.logger.LogToFrontend("INFO", "Starting initial peer discovery...")
-
-	// Wait for DHT to be ready (timeout after 10 seconds)
-	if !as.peerManager.WaitForDHTReady(10 * time.Second) {
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "DHT initialization timeout"})
+	result, err := h.ProcessDiscoverRequest()
+	if err != nil {
+		h.sendJSONResponse(w, APIResponse{Success: false, Error: err.Error()})
 		return
 	}
-
-	// Create discovery configuration
-	config := DiscoveryConfig{
-		RendezvousString:  RendezvousString,
-		ConnectionTimeout: ConnectionTimeout,
-		AdvertiseInterval: AdvertiseInterval,
-		ValidationTimeout: 1 * time.Second,
-		MaxConcurrent:     5,
-	}
-
-	// Create discovery manager
-	discoveryManager := NewPeerDiscoveryManager(config, as.connectionManager, as.logger)
-
-	// Get DHT from peer manager
-	dht := as.peerManager.GetDHT()
-	if dht == nil {
-		as.sendJSONResponse(w, APIResponse{Success: false, Error: "DHT not initialized"})
-		return
-	}
-
-	// Advertise our presence first
-	ctx := context.Background()
-	discovery := routing.NewRoutingDiscovery(dht)
-	util.Advertise(ctx, discovery, RendezvousString)
-	as.logger.LogToFrontend("INFO", "Advertised presence in DHT")
-
-	// Give other peers a moment to advertise themselves
-	time.Sleep(1 * time.Second)
-
-	// Perform initial discovery
-	result := discoveryManager.DiscoverPeers(ctx, as.hostData, dht)
-
-	// Check connections after discovery and stream establishment
-	connectionCount := len(as.connectionManager.GetConnections())
-
-	// If no connections tracked but we had successful network connections,
-	// count the network connections instead
-	if connectionCount == 0 && result.SuccessCount > 0 {
-		connectionCount = result.SuccessCount
-	}
-
-	as.logger.LogToFrontend("INFO", "Discovery completed - found %d connections", connectionCount)
-
-	// Start background discovery process after initial discovery completes
-	as.peerManager.StartBackgroundDiscovery()
 
 	status := map[string]interface{}{
-		"connected": connectionCount > 0,
-		"peers":     connectionCount,
-		"hasPeers":  connectionCount > 0,
+		"connected": result.Connected,
+		"peers":     result.Peers,
+		"hasPeers":  result.HasPeers,
 	}
 
-	as.sendJSONResponse(w, APIResponse{Success: true, Message: "Discovery completed", Error: fmt.Sprintf("%v", status)})
+	h.sendJSONResponse(w, APIResponse{Success: true, Message: "Discovery completed", Error: fmt.Sprintf("%v", status)})
 }
 
-func (as *APIServer) sendJSONResponse(w http.ResponseWriter, response APIResponse) {
+func (h *HTTPRequestHandler) sendJSONResponse(w http.ResponseWriter, response APIResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

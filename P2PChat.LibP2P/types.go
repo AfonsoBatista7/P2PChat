@@ -21,6 +21,7 @@ const (
 	TopicName         = "chat"
 	ConnectionTimeout = 30 * time.Second // Increased from 5 seconds to 30 seconds
 	AdvertiseInterval = 2 * time.Minute  // How often to re-advertise ourselves
+	AdvertisementTTL  = 5 * time.Minute  // How long advertisements stay in DHT before expiring
 	LogChannelBuffer  = 100
 	LogTimeout        = 1 * time.Second
 )

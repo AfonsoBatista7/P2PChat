@@ -7,6 +7,7 @@ import (
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
@@ -156,8 +157,8 @@ func (p *PeerManager) discover(ctx context.Context, host host.Host, kademliaDht 
 	discoveryManager := NewPeerDiscoveryManager(config, connectionManager, logger)
 
 	// Advertise our presence
-	discovery := routing.NewRoutingDiscovery(kademliaDht)
-	util.Advertise(ctx, discovery, RendezvousString)
+	discoveryInterface := routing.NewRoutingDiscovery(kademliaDht)
+	util.Advertise(ctx, discoveryInterface, RendezvousString, discovery.TTL(AdvertisementTTL))
 
 	// Give other peers a moment to advertise themselves
 	time.Sleep(500 * time.Millisecond)
@@ -179,7 +180,7 @@ func (p *PeerManager) discover(ctx context.Context, host host.Host, kademliaDht 
 			discoveryManager.DiscoverPeers(ctx, host, kademliaDht)
 		case <-advertiseTicker.C:
 			// Re-advertise ourselves to stay discoverable
-			util.Advertise(ctx, discovery, RendezvousString)
+			util.Advertise(ctx, discoveryInterface, RendezvousString, discovery.TTL(AdvertisementTTL))
 		}
 	}
 }
@@ -221,12 +222,21 @@ func (p *PeerManager) GetDHT() *dht.IpfsDHT {
 func (p *PeerManager) cleanupDHT(kademliaDht *dht.IpfsDHT, logger *Logger) {
 	logger.LogToFrontend("INFO", "Cleaning up DHT advertisements...")
 
-	// Note: libp2p doesn't provide a direct way to remove advertisements
-	// But we can help by not advertising anymore and letting them expire
-	// The DHT will eventually clean up stale entries
-
-	// Close the DHT properly
 	if kademliaDht != nil {
+		// Try to actively remove our advertisement by advertising with a very short TTL
+		// This helps ensure stale entries are cleaned up faster
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		discoveryInterface := routing.NewRoutingDiscovery(kademliaDht)
+		// Advertise with minimal TTL (1 second) to effectively "remove" our presence
+		util.Advertise(ctx, discoveryInterface, RendezvousString, discovery.TTL(1*time.Second))
+		logger.LogToFrontend("INFO", "Sent cleanup advertisement with minimal TTL")
+
+		// Wait a moment for the cleanup advertisement to propagate
+		time.Sleep(2 * time.Second)
+
+		// Close the DHT properly
 		if err := kademliaDht.Close(); err != nil {
 			logger.LogToFrontend("ERROR", "Error closing DHT: %v", err)
 		} else {
