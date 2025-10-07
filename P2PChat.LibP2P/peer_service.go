@@ -170,6 +170,17 @@ func (ps *ConcretePeerService) GetStatus() (bool, int, error) {
 // Close shuts down the P2P network
 func (ps *ConcretePeerService) Close() error {
 	ps.logger.LogToFrontend("INFO", "Closing P2P network...")
+	ctx := context.Background()
+
+	// Publish peer leave message before removing the connection
+	if topicHandle != nil {
+		leaveMessage := ps.connectionManager.createPeerStatusMessage(ps.hostData.ID(), "LEFT")
+		bytes := []byte(leaveMessage)
+		err := topicHandle.Publish(ctx, bytes)
+		if err != nil {
+			ps.logger.LogToFrontend("ERROR", "Failed to publish leave message: %v", err)
+		}
+	}
 
 	// Close all connections in the connection manager
 	connections := ps.connectionManager.GetConnections()

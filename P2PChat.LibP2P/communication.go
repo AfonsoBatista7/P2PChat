@@ -82,7 +82,7 @@ func (h *HTTPCommunicationHandler) GetProtocolName() string {
 	return "HTTP"
 }
 
-// Example of how you could add other protocols:
+// Example of how could added other protocols:
 
 // GRPCCommunicationHandler would implement CommunicationHandler for gRPC
 // type GRPCCommunicationHandler struct {

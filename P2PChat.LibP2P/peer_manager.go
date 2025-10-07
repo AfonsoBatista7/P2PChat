@@ -126,6 +126,16 @@ func joinTopic(topic string, gossipSub *pubsub.PubSub, hostData host.Host, ctx c
 		return
 	}
 
+	// Publish peer join message (if pubsub is integrated)
+	if topicHandle != nil {
+		joinMessage := p.connectionManager.createPeerStatusMessage(hostData.ID(), "JOINED")
+		bytes := []byte(joinMessage)
+		err := topicHandle.Publish(ctx, bytes)
+		if err != nil {
+			logger.LogToFrontend("ERROR", "Failed to publish join message: %v", err)
+		}
+	}
+
 	go p.subscribe(subscriber, ctx, hostData.ID(), logger)
 }
 

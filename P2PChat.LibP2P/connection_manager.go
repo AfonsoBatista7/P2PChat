@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"sync"
 	"time"
 
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -21,7 +21,7 @@ type ConnectionManager struct {
 	failedConnectionsMutex sync.RWMutex
 	logger                 *Logger
 	host                   host.Host
-	topicHandle            interface{} // Will be properly typed when pubsub is imported
+	topicHandle            *pubsub.Topic
 	contextVar             context.Context
 }
 
@@ -36,7 +36,7 @@ func NewConnectionManager(logger *Logger, host host.Host) *ConnectionManager {
 }
 
 // SetTopicHandle sets the topic handle for publishing peer status messages
-func (cm *ConnectionManager) SetTopicHandle(topicHandle interface{}) {
+func (cm *ConnectionManager) SetTopicHandle(topicHandle *pubsub.Topic) {
 	cm.topicHandle = topicHandle
 }
 
@@ -59,16 +59,6 @@ func (cm *ConnectionManager) HandleStream(s network.Stream) {
 		LastSeen: time.Now(),
 	}
 
-	// Publish peer join message (if pubsub is integrated)
-	if cm.topicHandle != nil {
-		// joinMessage := cm.createPeerStatusMessage(conn.PeerID, "JOINED")
-		// bytes := []byte(joinMessage)
-		// err := cm.topicHandle.Publish(cm.contextVar, bytes)
-		// if err != nil {
-		// 	cm.logger.LogToFrontend("ERROR", "Failed to publish join message: %v", err)
-		// }
-	}
-
 	cm.connectionsMutex.Lock()
 	cm.connections = append(cm.connections, conn)
 	cm.connectionsMutex.Unlock()
@@ -77,67 +67,6 @@ func (cm *ConnectionManager) HandleStream(s network.Stream) {
 	cm.failedConnectionsMutex.Lock()
 	delete(cm.failedConnections, s.Conn().RemotePeer())
 	cm.failedConnectionsMutex.Unlock()
-
-	go cm.readData(conn)
-}
-
-// ReadData reads data from a connection
-func (cm *ConnectionManager) readData(conn *Connection) {
-	cm.logger.LogToFrontend("INFO", "Reading Data...")
-	for {
-		str, err := conn.RW.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				cm.logger.LogToFrontend("ERROR", "Error reading from peer %s: %v", conn.PeerID, err)
-			}
-			cm.removeConnection(conn)
-			return
-		}
-
-		if str == "" {
-			return
-		}
-
-		if str != "\n" {
-			cm.logger.LogToFrontend("MSG", "Anon: %s", str)
-		}
-
-		// Update last seen time
-		conn.LastSeen = time.Now()
-	}
-}
-
-// WriteData writes data to all connections
-func (cm *ConnectionManager) WriteData(sendData string) {
-	cm.connectionsMutex.RLock()
-	connections := make([]*Connection, len(cm.connections))
-	copy(connections, cm.connections)
-	cm.connectionsMutex.RUnlock()
-
-	for _, conn := range connections {
-		if time.Since(conn.LastSeen) > ConnectionTimeout {
-			// Connection is stale, remove it
-			cm.removeConnection(conn)
-			continue
-		}
-
-		_, err := conn.RW.WriteString(fmt.Sprintf("%s\n", sendData))
-		if err != nil {
-			cm.logger.LogToFrontend("ERROR", "Error writing to peer %s: %v", conn.PeerID, err)
-			cm.removeConnection(conn)
-			continue
-		}
-
-		err = conn.RW.Flush()
-		if err != nil {
-			cm.logger.LogToFrontend("ERROR", "Error flushing to peer %s: %v", conn.PeerID, err)
-			cm.removeConnection(conn)
-			continue
-		}
-
-		// Update LastSeen timestamp to keep connection alive
-		conn.LastSeen = time.Now()
-	}
 }
 
 // CreatePeerStatusMessage creates a peer status message
@@ -147,15 +76,6 @@ func (cm *ConnectionManager) createPeerStatusMessage(peerID peer.ID, status stri
 
 // RemoveConnection removes a connection
 func (cm *ConnectionManager) removeConnection(conn *Connection) {
-	// Publish peer leave message before removing the connection
-	if cm.topicHandle != nil {
-		// leaveMessage := cm.createPeerStatusMessage(conn.PeerID, "LEFT")
-		// bytes := []byte(leaveMessage)
-		// err := cm.topicHandle.Publish(cm.contextVar, bytes)
-		// if err != nil {
-		// 	cm.logger.LogToFrontend("ERROR", "Failed to publish leave message: %v", err)
-		// }
-	}
 
 	// Remove the connection from the slice
 	cm.connectionsMutex.Lock()
